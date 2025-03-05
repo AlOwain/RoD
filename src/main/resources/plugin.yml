@@ -1,0 +1,7 @@
+name: ResetOnDeath
+version: 0.1.0
+main: dev.alowain.rod.Rod
+api-version: '1.21'
+description: A plugin that makes playing hardcore with friends.
+author: AlOwain
+website: https://alowain.dev
