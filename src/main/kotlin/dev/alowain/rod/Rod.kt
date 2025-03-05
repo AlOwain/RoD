@@ -29,38 +29,70 @@ object rodlog {
     }
 }
 
-fun reset_player(player: Player, gamemode: GameMode, spawn: Location) {
-    player.getEnderChest().clear();
-    player.setHealth(20.0);
-    player.setFoodLevel(20);
-    player.setSaturation(5.0f);
-    player.getInventory().clear();
-
-    player.setRespawnLocation(spawn)
-
-    if (!player.isDead()) {
-        player.setGameMode(gamemode);
-
-        check(player.teleport(spawn)) {
-            "Teleporting player '${player.getName()}' to ${spawn.getWorld().name} (${spawn.getX()}, ${spawn.getY()}, ${spawn.getZ()}) failed."
-        }
-    }
-}
-
-fun tp(to: World, gamemode: GameMode) {
+fun tp(to: World) {
     val spawn = to.getSpawnLocation()
     check(spawn.isWorldLoaded()) {
         "'${to.name}' is not loaded."
     }
 
     for (player in Bukkit.getOnlinePlayers()) {
+        check(player.teleport(spawn)) {
+            "Teleporting player '${player.getName()}' to ${spawn.getWorld().name} (${spawn.getX()}, ${spawn.getY()}, ${spawn.getZ()}) failed."
+        }
+    }
+}
+
+fun reset_player(player: Player, gamemode: GameMode, spawn: Location) {
+    player.setRespawnLocation(spawn)
+
+    player.getEnderChest().clear();
+    player.setHealth(20.0);
+    player.setFoodLevel(20);
+    player.setSaturation(5.0f);
+    player.getInventory().clear()
+    player.setTotalExperience(0)
+    player.setLevel(0)
+
+    player.setGameMode(gamemode)
+
+    for (advancement in Bukkit.advancementIterator()) {
+        val progress = player.getAdvancementProgress(advancement)
+        for (criteria in progress.awardedCriteria) {
+            progress.revokeCriteria(criteria)
+        }
+    }
+}
+
+fun reset_all(gamemode: GameMode, spawn: Location) {
+    for (player in Bukkit.getOnlinePlayers()) {
         reset_player(player, gamemode, spawn)
     }
-
-    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "advancement revoke @a everything")
-    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "experience set @a 0 levels")
-    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "experience set @a 0 points")
 }
+
+fun regenerate(): World {
+    val old_hardcore = Bukkit.getWorld("hardcore")
+    if (old_hardcore != null) {
+        rodlog.logger.info("Unloading world")
+        Bukkit.unloadWorld(old_hardcore, false)
+
+        rodlog.logger.info("Deleting world '" + old_hardcore.getWorldFolder() + "'")
+        old_hardcore.getWorldFolder().deleteRecursively()
+    }
+
+    val hardcore = WorldCreator("hardcore").seed(Random().nextLong()).hardcore(true).createWorld()!!
+    hardcore.setGameRule(GameRule.PLAYERS_SLEEPING_PERCENTAGE, 1)
+    Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "kill @e[type=item]")
+    val items_before = hardcore.getEntitiesByClass(Item::class.java)
+    for (item in items_before) {
+        item.remove()
+    }
+
+    check(Bukkit.getWorld("hardcore") != null) {
+        "Hardcore failed to create"
+    }
+
+    return hardcore
+} 
 
 class DeathListener : Listener {
     private var resetting: Boolean = false;
@@ -71,58 +103,35 @@ class DeathListener : Listener {
             if (resetting) return
             resetting = true;
         }
-        val player = event.player
-
-        player.spigot().respawn()
-        val limbo: World = WorldCreator("limbo").hardcore(true).createWorld()!!
-        tp(limbo, GameMode.SPECTATOR)
+        val world: World = Bukkit.getWorld("world")!!
+        reset_all(GameMode.SPECTATOR, world.getSpawnLocation())
+        tp(world)
 
         val hardcore: World = regenerate()
         rodlog.logger.info("Creating world with seed (" + hardcore.getSeed() + ")")
 
-        tp(hardcore, GameMode.SURVIVAL)
+        tp(hardcore)
         Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "kill @e[type=item]")
         val items_after = hardcore.getEntitiesByClass(Item::class.java)
         for (item in items_after) {
             item.remove()
         }
 
+        reset_all(GameMode.SURVIVAL, hardcore.getSpawnLocation())
         resetting = false
     }
 
     @EventHandler
     fun onPlayerJoin(event: PlayerJoinEvent) {
-        val player = event.player
-        if (player.getWorld().name == "limbo") {
-            val spawn: Location = WorldCreator("world").hardcore(true).createWorld()!!.getSpawnLocation()
-            reset_player(player, GameMode.SURVIVAL, spawn)
-            player.setLevel(0);
-            player.setExp(0.0f);
-
-            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "advancement revoke " + player.getName() + " everything")
+        if (event.player.getWorld().name == "world") {
+            val spawn: Location = Bukkit.getWorld("hardcore")!!.getSpawnLocation()
+            reset_player(event.player, GameMode.SURVIVAL, spawn)
+            check(event.player.teleport(spawn)) {
+                "Teleporting player '${event.player.getName()}' to hardcore world failed."
+            }
         }
     }
 
-    private fun regenerate(): World {
-        val old_hardcore = Bukkit.getWorld("world")
-        if (old_hardcore != null) {
-            rodlog.logger.info("Unloading world")
-            Bukkit.unloadWorld(old_hardcore, false)
-
-            rodlog.logger.info("Deleting world '" + old_hardcore.getWorldFolder() + "'")
-            old_hardcore.getWorldFolder().deleteRecursively()
-        }
-
-        val hardcore = WorldCreator("world").seed(Random().nextLong()).hardcore(true).createWorld()!!
-        hardcore.setGameRule(GameRule.PLAYERS_SLEEPING_PERCENTAGE, 1)
-        Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "kill @e[type=item]")
-        val items_before = hardcore.getEntitiesByClass(Item::class.java)
-        for (item in items_before) {
-            item.remove()
-        }
-
-        return hardcore
-    } 
 }
 
 class Rod : JavaPlugin() {
@@ -143,16 +152,9 @@ class Rod : JavaPlugin() {
         }
 
         objective.displaySlot = DisplaySlot.PLAYER_LIST
+
+        if (Bukkit.getWorld("hardcore") == null) {
+            regenerate()
+        }
     }
 }
-
-
-// NOTE: You should test the following
-// - Player dies in other world
-// - Multiple players die at the same time
-// - Inventory, XP, achievements, enderchests of players and the dead player
-// - Player joins into another world
-//
-// NOTE: You should build the following
-// - Lives that come with killing the Ender Dragon
-// - Temporary blindness and a sound effect with text of who died
