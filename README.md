@@ -5,12 +5,11 @@ This plugin works by creating two worlds, a main world named "world" which store
 
 ## Bugs
 
-- The user who has died, drops all items at spawn.
-- It currently moves all users to the limbo world, not resetting the world.
+- If a user dies, they drop all their items at the new spawn.
 
 ## Missing Features
 
 - Players earn an extra shared-life when killing the Ender Dragon.
 - Temporary blindness and a sound effect with text when a player dies.
 - Creation of archives instead of world deletion.
-- Players spawning into the limbo world are not automatically teleported into "hardcore", as clearing their inventory and experience could be necessary, and sometimes not. Further experimentation of the behavior is required.
+- Players spawning into the limbo world are automatically teleported into "hardcore", however, clearing their inventory and experience is necessary. Whether this can clear players' inventories without any instigation from them is yet to be seen. Further experimentation of the behavior is required.
